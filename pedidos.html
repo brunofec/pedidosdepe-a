@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pedidos de Peças</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    .badge { padding:2px 8px; border-radius:999px; font-size:12px; }
+    .badge.open { background:#1f2430; color:#fbbf24; border:1px solid #3a3f52; }
+    .badge.done { background:#1f2d1f; color:#4ade80; border:1px solid #27422a; }
+    .alert { background:#1f2d1f; color:#4ade80; border:1px solid #27422a; padding:8px 12px; border-radius:10px; font-size:14px; display:none; }
+    .alert.warn { background:#2f231f; color:#fbbf24; border-color:#5a3a2a; }
+    .hint { color:#9ba3af; font-size:12px; margin-top:6px; }
+    .suggest { position:relative; }
+    .suggest-list { position:absolute; z-index:20; top:100%; left:0; right:0; max-height:180px; overflow:auto; background:#0f121a; border:1px solid #232838; border-radius:10px; display:none; }
+    .suggest-item { padding:8px 10px; cursor:pointer; }
+    .suggest-item:hover { background:#161b28; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="logo">
+      <img src="img/logo.png" alt="Logo" class="logo-img" />
+    </div>
+    <div class="small">Protótipo local</div>
+  </header>
+
+  <aside class="sidebar">
+    <a href="dashboard.html">Painel</a>
+    <a href="pedidos.html" class="active">Pedidos de Peças</a>
+    <a href="produtos.html">Cadastro de Produtos</a>
+    <a href="pulmao.html">Cadastro Pulmão de Peças</a>
+    <a href="#" title="Em construção">Configurações</a>
+  </aside>
+
+  <div class="layout">
+    <main>
+      <!-- Formulário -->
+      <section class="card-block">
+        <h3>Novo Pedido de Peça</h3>
+
+        <!-- Alerta que acende quando a peça já existe no Pulmão -->
+        <div id="alert-pulmao" class="alert">
+          ✅ Esta peça já consta no <strong>Pulmão de Peças</strong> para este Fabricante/Produto/Código do Produto.
+        </div>
+
+        <form id="form-pedido" class="grid" style="grid-template-columns: repeat(6, 1fr);">
+          <div style="grid-column: span 2;">
+            <label>Filial Solicitante</label>
+            <input id="f-filial" class="input" placeholder="Ex.: Filial 01" required />
+          </div>
+
+          <div style="grid-column: span 2;">
+            <label>Fabricante (do Cadastro de Produtos)</label>
+            <select id="sel-fabricante" class="input" required>
+              <option value="">Selecione…</option>
+            </select>
+          </div>
+
+          <div style="grid-column: span 2;">
+            <label>Produto (do Cadastro de Produtos)</label>
+            <select id="sel-produto" class="input" required disabled>
+              <option value="">Selecione…</option>
+            </select>
+          </div>
+
+          <div style="grid-column: span 2;">
+            <label>Cód. Produto</label>
+            <input id="f-cod-produto" class="input" readonly placeholder="—" />
+          </div>
+
+          <div class="suggest" style="grid-column: span 2;">
+            <label>Cód. Peça</label>
+            <input id="f-cod-peca" class="input" placeholder="Ex.: P45" required autocomplete="off" />
+            <div id="suggest-cod" class="suggest-list"></div>
+          </div>
+
+          <div class="suggest" style="grid-column: span 2;">
+            <label>Peça</label>
+            <input id="f-peca" class="input" placeholder="Ex.: Correia Porta" required autocomplete="off" />
+            <div id="suggest-peca" class="suggest-list"></div>
+          </div>
+
+          <div style="grid-column: span 6;" id="pulmao-hint" class="hint"></div>
+
+          <div style="grid-column: span 1;">
+            <label>Qtd</label>
+            <input id="f-quantidade" type="number" min="1" value="1" class="input" required />
+          </div>
+
+          <div style="grid-column: span 5;">
+            <label>Observação</label>
+            <input id="f-observacao" class="input" placeholder="Notas adicionais (opcional)" />
+          </div>
+
+          <div style="grid-column: span 6; display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
+            <button class="btn" type="submit">Adicionar Pedido</button>
+            <button class="btn btn-outline" type="reset">Limpar</button>
+          </div>
+        </form>
+        <p class="small" id="msg" style="margin-top:8px;"></p>
+      </section>
+
+      <!-- Lista -->
+      <section class="card-block">
+        <div class="toolbar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <input id="q" class="input" placeholder="Buscar por filial/fabricante/produto/cód./peça/obs/status…" style="max-width:520px;">
+          <button id="btn-export" class="btn btn-outline">Exportar CSV</button>
+        </div>
+        <div style="overflow:auto">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Filial</th>
+                <th>Fabricante</th>
+                <th>Produto</th>
+                <th>Cód. Produto</th>
+                <th>Cód. Peça</th>
+                <th>Peça</th>
+                <th>Qtd</th>
+                <th>Observação</th>
+                <th>Status</th>
+                <th style="width:220px;">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="watermark">Desenvolvido por Bruno Ferreira da Cruz</div>
+
+  <script>
+    // ===== Constantes / Storage
+    const KEY_PRODUTOS = 'pp_produtos_v3'; // base para fabricante/produto/código do produto
+    const KEY_PULMAO   = 'pp_pulmao_v4';   // usado só para sugerir/alertar existência
+    const KEY_PEDIDOS  = 'pp_pedidos_v3';  // pedidos com status
+    const $  = (s)=>document.querySelector(s);
+    const storage = {
+      get(k,d){ try{ return JSON.parse(localStorage.getItem(k)||JSON.stringify(d)); }catch{ return d; } },
+      set(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
+    };
+    const uid = ()=> (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(16).slice(2));
+
+    // ===== Produtos (fonte do formulário)
+    const produtos = {
+      all(){ return storage.get(KEY_PRODUTOS, []); },
+      fabricantes(){ return [...new Set(this.all().map(p=>p.fabricante))].filter(Boolean).sort((a,b)=>a.localeCompare(b)); },
+      produtosByFabricante(fab){ return this.all().filter(p=>p.fabricante===fab).sort((a,b)=>(a.produto||'').localeCompare(b.produto||'')); },
+      findByFabAndProduto(fab, prod){ return this.all().find(p=>p.fabricante===fab && p.produto===prod); }
+    };
+
+    // ===== Pulmão (para alerta/sugestão)
+    function pulmAll(){ return storage.get(KEY_PULMAO, []); }
+    function existsInPulmao({fabricante, produto, codigoProduto, codigoPeca, peca}){
+      return pulmAll().some(x =>
+        x.fabricante===fabricante &&
+        x.produto===produto &&
+        x.codigoProduto===codigoProduto &&
+        x.codigoPeca===codigoPeca &&
+        x.peca===peca
+      );
+    }
+    function sugestoesPulmao(fab, prod, tipo, termo){
+      // tipo: 'codigoPeca' | 'peca'
+      const base = pulmAll().filter(x => x.fabricante===fab && x.produto===prod);
+      const t = (termo||'').toLowerCase();
+      const arr = [...new Set(base.map(x=>x[tipo]).filter(Boolean))];
+      return t ? arr.filter(v => String(v).toLowerCase().includes(t)).slice(0,20) : arr.slice(0,20);
+    }
+
+    // ===== Pedidos (CRUD + status)
+    const pedidos = {
+      all(){ return storage.get(KEY_PEDIDOS, []).map(x=>({status:'aberto', ...x, status:x.status||'aberto'})); },
+      saveAll(list){ storage.set(KEY_PEDIDOS, list); },
+      create(data){
+        const list = this.all();
+        const item = { id: uid(), created_at: new Date().toISOString(), status: 'aberto', concluded_at: null, ...data };
+        list.unshift(item); this.saveAll(list); return item;
+      },
+      remove(id){ this.saveAll(this.all().filter(x=>x.id!==id)); },
+      setStatus(id, status){
+        const list=this.all(); const i=list.findIndex(x=>x.id===id);
+        if(i<0) return;
+        list[i].status = status;
+        list[i].concluded_at = status==='concluido' ? new Date().toISOString() : null;
+        this.saveAll(list);
+      },
+      filter(q=''){
+        q=q.toLowerCase();
+        return this.all().filter(x => !q || `${x.filial} ${x.fabricante} ${x.produto} ${x.codigoProduto} ${x.codigoPeca} ${x.peca} ${x.quantidade} ${x.observacao} ${x.status}`.toLowerCase().includes(q));
+      }
+    };
+
+    // ===== UI Helpers
+    function uniqueSorted(a){ return [...new Set(a)].filter(Boolean).sort((x,y)=>x.localeCompare(y)); }
+    function statusBadge(s){ return s==='concluido'?`<span class="badge done">Concluído</span>`:`<span class="badge open">Aberto</span>`;}
+    function rowHTML(x){
+      return `<tr>
+        <td>${x.filial}</td>
+        <td>${x.fabricante}</td>
+        <td>${x.produto}</td>
+        <td>${x.codigoProduto}</td>
+        <td>${x.codigoPeca}</td>
+        <td>${x.peca}</td>
+        <td>${x.quantidade}</td>
+        <td>${x.observacao || ''}</td>
+        <td>${statusBadge(x.status)}</td>
+        <td>
+          ${x.status==='aberto'
+            ? `<button class="btn" data-ok="${x.id}">Concluir</button>`
+            : `<button class="btn btn-outline" data-reopen="${x.id}">Reabrir</button>`}
+          <button class="btn btn-outline" data-del="${x.id}" style="margin-left:6px;">Excluir</button>
+        </td>
+      </tr>`;
+    }
+    function render(){
+      const list = pedidos.filter($('#q').value);
+      $('#tbody').innerHTML = list.length ? list.map(rowHTML).join('') : `<tr><td colspan="10" class="small">Nenhum pedido cadastrado.</td></tr>`;
+    }
+    function clearForm(){
+      $('#form-pedido').reset();
+      loadFabricantes();
+      hideAlertPulmao();
+      hideSuggests();
+      $('#msg').textContent='';
+    }
+
+    // ===== Form: carregar a partir de PRODUTOS
+    function loadFabricantes(){
+      const sel=$('#sel-fabricante');
+      sel.innerHTML = '<option value="">Selecione…</option>' + produtos.fabricantes().map(f=>`<option value="${f}">${f}</option>`).join('');
+      $('#sel-produto').innerHTML='<option value="">Selecione…</option>'; $('#sel-produto').disabled=true;
+      $('#f-cod-produto').value=''; $('#f-cod-peca').value=''; $('#f-peca').value='';
+      setPulmaoHint();
+    }
+    function loadProdutos(fab){
+      const items=produtos.produtosByFabricante(fab);
+      const sel=$('#sel-produto');
+      sel.innerHTML = '<option value="">Selecione…</option>' + items.map(p=>`<option value="${p.produto}">${p.produto}</option>`).join('');
+      sel.disabled=false;
+      $('#f-cod-produto').value=''; $('#f-cod-peca').value=''; $('#f-peca').value='';
+      setPulmaoHint();
+    }
+    function fillCodProduto(fab, prod){
+      const p = produtos.findByFabAndProduto(fab, prod);
+      $('#f-cod-produto').value = p ? (p.codigoProduto || '') : '';
+      $('#f-cod-peca').value=''; $('#f-peca').value='';
+      setPulmaoHint();
+      hideAlertPulmao();
+    }
+
+    // ===== Alerta/Sugestão Pulmão
+    function showAlertPulmao(){ const a=$('#alert-pulmao'); a.style.display='block'; a.classList.remove('warn'); }
+    function hideAlertPulmao(){ const a=$('#alert-pulmao'); a.style.display='none'; }
+    function setPulmaoHint(){
+      const fab=$('#sel-fabricante').value, prod=$('#sel-produto').value, codp=$('#f-cod-produto').value;
+      if(!fab||!prod||!codp){ $('#pulmao-hint').textContent=''; return; }
+      const base = pulmAll().filter(x=>x.fabricante===fab && x.produto===prod && x.codigoProduto===codp);
+      if(!base.length){ $('#pulmao-hint').textContent='Não há peças no Pulmão para este Fabricante/Produto/Cód. Produto.'; }
+      else { $('#pulmao-hint').textContent=`Pulmão possui ${base.length} peça(s) cadastrada(s) para este Fabricante/Produto/Cód. Produto.`; }
+    }
+
+    function attachSuggest(inputId, listId, tipo){
+      const inp=$(inputId), list=$(listId);
+      function renderList(){
+        const fab=$('#sel-fabricante').value, prod=$('#sel-produto').value;
+        if(!fab||!prod){ list.style.display='none'; return; }
+        const v=inp.value.trim();
+        const sugs=sugestoesPulmao(fab, prod, tipo, v);
+        if(!sugs.length){ list.style.display='none'; return; }
+        list.innerHTML=sugs.map(s=>`<div class="suggest-item" data-v="${s.replace(/"/g,'&quot;')}">${s}</div>`).join('');
+        list.style.display='block';
+      }
+      inp.addEventListener('input', ()=>{ renderList(); checkPulmaoAlert(); });
+      inp.addEventListener('focus', renderList);
+      list.addEventListener('click', (e)=>{
+        const v=e.target.getAttribute('data-v');
+        if(v){ inp.value=v; list.style.display='none'; checkPulmaoAlert(); }
+      });
+      document.addEventListener('click', (e)=>{ if(!list.contains(e.target) && e.target!==inp){ list.style.display='none'; } });
+    }
+    function hideSuggests(){ $('#suggest-cod').style.display='none'; $('#suggest-peca').style.display='none'; }
+
+    function checkPulmaoAlert(){
+      const fabricante=$('#sel-fabricante').value;
+      const produto=$('#sel-produto').value;
+      const codigoProduto=$('#f-cod-produto').value;
+      const codigoPeca=$('#f-cod-peca').value.trim();
+      const peca=$('#f-peca').value.trim();
+      if (fabricante && produto && codigoProduto && codigoPeca && peca){
+        if (existsInPulmao({fabricante,produto,codigoProduto,codigoPeca,peca})){
+          showAlertPulmao();
+        } else {
+          hideAlertPulmao();
+        }
+      } else {
+        hideAlertPulmao();
+      }
+    }
+
+    // ===== Submit
+    $('#form-pedido').addEventListener('submit', e=>{
+      e.preventDefault();
+      const filial        = $('#f-filial').value.trim();
+      const fabricante    = $('#sel-fabricante').value;
+      const produto       = $('#sel-produto').value;
+      const codigoProduto = $('#f-cod-produto').value;
+      const codigoPeca    = $('#f-cod-peca').value.trim();
+      const peca          = $('#f-peca').value.trim();
+      const quantidade    = Math.max(1, parseInt($('#f-quantidade').value || '1', 10));
+      const observacao    = $('#f-observacao').value.trim();
+
+      if (!filial || !fabricante || !produto || !codigoProduto || !codigoPeca || !peca){
+        $('#msg').textContent='Preencha todos os campos obrigatórios.'; $('#msg').style.color='#ffd35c'; return;
+      }
+
+      const item = pedidos.create({ filial,fabricante,produto,codigoProduto,codigoPeca,peca,quantidade,observacao });
+
+      // Após salvar, alerta caso a peça exista no Pulmão
+      if (existsInPulmao({fabricante,produto,codigoProduto,codigoPeca,peca})){
+        showAlertPulmao();
+        $('#msg').textContent='Pedido adicionado. ⚠️ Esta peça já consta no Pulmão.';
+        $('#msg').style.color='#fbbf24';
+      } else {
+        hideAlertPulmao();
+        $('#msg').textContent='Pedido adicionado com sucesso.';
+        $('#msg').style.color='#9ba3af';
+      }
+
+      clearForm(); render();
+    });
+
+    // ===== Eventos diversos
+    $('#form-pedido').addEventListener('reset', ()=>{ clearForm(); });
+    $('#sel-fabricante').addEventListener('change', e=>{
+      const fab=e.target.value;
+      if(!fab){ loadFabricantes(); return; }
+      loadProdutos(fab);
+    });
+    $('#sel-produto').addEventListener('change', e=>{
+      const fab=$('#sel-fabricante').value; const prod=e.target.value;
+      if(!fab||!prod){ $('#f-cod-produto').value=''; setPulmaoHint(); return; }
+      const p = produtos.findByFabAndProduto(fab, prod);
+      $('#f-cod-produto').value = p ? (p.codigoProduto || '') : '';
+      setPulmaoHint(); hideAlertPulmao(); hideSuggests();
+    });
+
+    // Auto-checagem do alerta enquanto digita código/peça
+    ['#f-cod-peca','#f-peca'].forEach(sel=>{
+      $(sel).addEventListener('input', checkPulmaoAlert);
+      $(sel).addEventListener('blur', checkPulmaoAlert);
+    });
+
+    // Sugestões vindas do Pulmão (opcional, ajuda a padronizar)
+    attachSuggest('#f-cod-peca', '#suggest-cod', 'codigoPeca');
+    attachSuggest('#f-peca',     '#suggest-peca', 'peca');
+
+    // Tabela
+    $('#tbody').addEventListener('click', e=>{
+      const idDel = e.target.getAttribute('data-del');
+      const idOk  = e.target.getAttribute('data-ok');
+      const idRe  = e.target.getAttribute('data-reopen');
+      if (idDel && confirm('Excluir este pedido?')){ pedidos.remove(idDel); render(); }
+      else if (idOk){ pedidos.setStatus(idOk, 'concluido'); render(); }
+      else if (idRe){ pedidos.setStatus(idRe, 'aberto'); render(); }
+    });
+    $('#q').addEventListener('input', render);
+
+    // Exportar
+    function toCsvValue(v){ if(v==null) v=''; v=String(v).replace(/"/g,'""'); return `"${v}"`; }
+    function exportCsv(rows, header){
+      const DELIM=';'; const EOL='\r\n'; const BOM='\uFEFF';
+      const lines=[header.map(toCsvValue).join(DELIM)];
+      rows.forEach(r=>lines.push(header.map(h=>toCsvValue(r[h])).join(DELIM)));
+      const blob=new Blob([BOM+lines.join(EOL)],{type:'text/csv;charset=utf-8;'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a'); a.href=url;
+      const ts=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+      a.download=`pedidos-${ts}.csv`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+    $('#btn-export').addEventListener('click', ()=>{
+      const rows = pedidos.filter($('#q').value);
+      if(!rows.length){ alert('Não há pedidos para exportar (verifique o filtro).'); return; }
+      const data = rows.map(r=>({
+        Filial:r.filial, Fabricante:r.fabricante, Produto:r.produto,
+        CodigoProduto:r.codigoProduto, CodigoPeca:r.codigoPeca, Peca:r.peca,
+        Quantidade:r.quantidade, Observacao:r.observacao||'',
+        Status:r.status || 'aberto', CriadoEm:r.created_at, ConcluidoEm:r.concluded_at || ''
+      }));
+      exportCsv(data, ['Filial','Fabricante','Produto','CodigoProduto','CodigoPeca','Peca','Quantidade','Observacao','Status','CriadoEm','ConcluidoEm']);
+    });
+
+    // Boot
+    loadFabricantes();
+    render();
+
+    // Mensagem inicial se não houver produtos cadastrados
+    if (produtos.all().length===0){
+      $('#msg').textContent='Nenhum produto no cadastro. Cadastre em "Cadastro de Produtos" primeiro.';
+      $('#msg').style.color='#ffd35c';
+    }
+  </script>
+</body>
+</html>

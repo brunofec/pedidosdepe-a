@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cadastro de Produtos</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="logo">
+      <img src="img/logo.png" alt="Logo" class="logo-img" />
+    </div>
+    <div class="small">Protótipo local</div>
+  </header>
+
+  <aside class="sidebar">
+    <a href="dashboard.html">Painel</a>
+    <a href="pedidos.html">Pedidos de Peças</a>
+    <a href="produtos.html" class="active">Cadastro de Produtos</a>
+    <a href="pulmao.html">Cadastro Pulmão de Peças</a>
+    <a href="#" title="Em construção">Configurações</a>
+  </aside>
+
+  <div class="layout">
+    <main>
+      <!-- Form -->
+      <section class="card-block">
+        <h3>Cadastrar Produto</h3>
+        <form id="form-produto" class="grid" style="grid-template-columns: repeat(4, 1fr);">
+          <div>
+            <label>Fabricante</label>
+            <input id="f-fabricante" class="input" placeholder="Ex.: Koerich" required />
+          </div>
+          <div>
+            <label>Cód. Produto</label>
+            <input id="f-cod-produto" class="input" placeholder="Ex.: K321" required />
+          </div>
+          <div style="grid-column: span 2;">
+            <label>Produto</label>
+            <input id="f-produto" class="input" placeholder="Ex.: Roupeiro Portugal" required />
+          </div>
+          <div style="grid-column: span 4; display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
+            <button type="submit" class="btn">Salvar</button>
+            <button type="reset" class="btn btn-outline">Limpar</button>
+          </div>
+        </form>
+        <p id="msg" class="small" style="margin-top:8px;"></p>
+      </section>
+
+      <!-- Tabela -->
+      <section class="card-block">
+        <div class="toolbar">
+          <input id="q" class="input" placeholder="Buscar por fabricante/cód./produto…" style="max-width:400px;">
+          <button id="btn-export" class="btn btn-outline">Exportar CSV</button>
+          <input type="file" id="file-import" accept=".csv" style="display:none;" />
+          <button id="btn-import" class="btn btn-outline">Importar CSV</button>
+        </div>
+        <div style="overflow:auto">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Fabricante</th>
+                <th>Cód. Produto</th>
+                <th>Produto</th>
+                <th style="width:140px;">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="watermark">Desenvolvido por Bruno Ferreira da Cruz</div>
+
+  <script>
+    const KEY_PRODUTOS='pp_produtos_v3';
+    const $=(s)=>document.querySelector(s);
+    const storage={get(k,d){try{return JSON.parse(localStorage.getItem(k)||JSON.stringify(d));}catch{return d;}},set(k,v){localStorage.setItem(k,JSON.stringify(v));}};
+    const uid=()=> (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(16).slice(2));
+
+    const produtos={
+      all(){return storage.get(KEY_PRODUTOS,[]);},
+      saveAll(list){storage.set(KEY_PRODUTOS,list);},
+      create(data){
+        const list=produtos.all();
+        const item={id:uid(),created_at:new Date().toISOString(),...data};
+        list.unshift(item); produtos.saveAll(list); return item;
+      },
+      remove(id){produtos.saveAll(produtos.all().filter(x=>x.id!==id));},
+      filter(q=''){
+        q=q.toLowerCase();
+        return produtos.all().filter(x=>
+          !q || `${x.fabricante} ${x.codigoProduto} ${x.produto}`.toLowerCase().includes(q)
+        );
+      }
+    };
+
+    function rowHTML(x){
+      return `<tr>
+        <td>${x.fabricante}</td>
+        <td>${x.codigoProduto}</td>
+        <td>${x.produto}</td>
+        <td>
+          <button class="btn btn-outline" data-del="${x.id}">Excluir</button>
+        </td>
+      </tr>`;
+    }
+    function render(){
+      const list=produtos.filter($('#q').value);
+      $('#tbody').innerHTML=list.length?list.map(rowHTML).join(''):`<tr><td colspan="4" class="small">Nenhum produto cadastrado.</td></tr>`;
+    }
+    function clearForm(){$('#form-produto').reset();}
+
+    // Export CSV (BOM, ; , CRLF)
+    function toCsvValue(v){if(v==null)v='';v=String(v).replace(/"/g,'""');return `"${v}"`;}
+    function exportCsv(rows,header){
+      const DELIM=';'; const EOL='\r\n'; const BOM='\uFEFF';
+      const lines=[header.map(toCsvValue).join(DELIM)];
+      rows.forEach(r=>lines.push(header.map(h=>toCsvValue(r[h])).join(DELIM)));
+      const blob=new Blob([BOM+lines.join(EOL)],{type:'text/csv;charset=utf-8;'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a'); a.href=url;
+      const ts=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+      a.download=`produtos-${ts}.csv`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // Import CSV
+    function parseCsv(content){
+      const lines=content.trim().split(/\r?\n/);
+      const headers=lines.shift().split(';').map(h=>h.replace(/"/g,'').trim());
+      return lines.map(l=>{
+        const vals=l.split(';').map(v=>v.replace(/^"|"$/g,'').replace(/""/g,'"'));
+        const obj={}; headers.forEach((h,i)=>obj[h]=vals[i]||'');
+        return obj;
+      });
+    }
+
+    // Form submit
+    $('#form-produto').addEventListener('submit',e=>{
+      e.preventDefault();
+      const fabricante=$('#f-fabricante').value.trim();
+      const codigoProduto=$('#f-cod-produto').value.trim();
+      const produto=$('#f-produto').value.trim();
+      if(!fabricante||!codigoProduto||!produto){
+        $('#msg').textContent='Preencha todos os campos.'; $('#msg').style.color='#ffd35c'; return;
+      }
+      produtos.create({fabricante,codigoProduto,produto});
+      $('#msg').textContent='Produto cadastrado com sucesso.'; $('#msg').style.color='#9ba3af';
+      clearForm(); render();
+    });
+
+    $('#form-produto').addEventListener('reset',()=>{$('#msg').textContent='';});
+    $('#tbody').addEventListener('click',e=>{
+      const idDel=e.target.getAttribute('data-del');
+      if(idDel&&confirm('Excluir este produto?')){produtos.remove(idDel);render();}
+    });
+    $('#q').addEventListener('input',render);
+
+    $('#btn-export').addEventListener('click',()=>{
+      const rows=produtos.filter($('#q').value);
+      if(!rows.length){alert('Nada para exportar.');return;}
+      const data=rows.map(r=>({Fabricante:r.fabricante,CodigoProduto:r.codigoProduto,Produto:r.produto,CriadoEm:r.created_at}));
+      exportCsv(data,['Fabricante','CodigoProduto','Produto','CriadoEm']);
+    });
+
+    $('#btn-import').addEventListener('click',()=>$('#file-import').click());
+    $('#file-import').addEventListener('change',e=>{
+      const file=e.target.files[0]; if(!file) return;
+      const reader=new FileReader();
+      reader.onload=evt=>{
+        const text=evt.target.result;
+        const rows=parseCsv(text);
+        let imported=0;
+        rows.forEach(r=>{
+          if(r.Fabricante && r.CodigoProduto && r.Produto){
+            produtos.create({fabricante:r.Fabricante,codigoProduto:r.CodigoProduto,produto:r.Produto});
+            imported++;
+          }
+        });
+        alert(`${imported} produtos importados.`);
+        render();
+      };
+      reader.readAsText(file,'utf-8');
+      e.target.value='';
+    });
+
+    render();
+  </script>
+</body>
+</html>

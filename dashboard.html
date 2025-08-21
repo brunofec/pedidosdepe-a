@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Painel</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    .meter { width:100%; height:10px; background:#1f2430; border-radius:999px; overflow:hidden; }
+    .meter > span { display:block; height:100%; background:#4ade80; width:0%; transition:width .6s ease; }
+    .meter.warn > span { background:#fbbf24; }
+    .meter.info > span { background:#60a5fa; }
+    .muted { color:#9ba3af; font-size:12px; }
+    .big { font-size:36px; font-weight:700; }
+    .kpi { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="logo">
+      <img src="img/logo.png" alt="Logo" class="logo-img" />
+    </div>
+    <div class="small">Protótipo local</div>
+  </header>
+
+  <aside class="sidebar">
+    <a href="dashboard.html" class="active">Painel</a>
+    <a href="pedidos.html">Pedidos de Peças</a>
+    <a href="produtos.html">Cadastro de Produtos</a>
+    <a href="pulmao.html">Cadastro Pulmão de Peças</a>
+    <a href="#" title="Em construção">Configurações</a>
+  </aside>
+
+  <div class="layout">
+    <main>
+      <section class="grid" style="grid-template-columns: repeat(12, 1fr); gap: 12px;">
+
+        <!-- Alertar 20+ dias -->
+        <div class="card-block" style="grid-column: span 4;">
+          <h3>Alertar</h3>
+          <p class="small">Pedidos em aberto há <strong>20+</strong> dias</p>
+          <div class="kpi">
+            <div>
+              <div id="alert-count" class="big">0</div>
+              <div id="alert-percent" class="muted">—</div>
+              <div class="meter warn" style="margin-top:6px;"><span id="alert-bar" style="width:0%"></span></div>
+              <div class="small" id="alert-updated" style="margin-top:6px;">—</div>
+            </div>
+            <a class="btn btn-outline" href="pedidos.html">Ver pedidos</a>
+          </div>
+        </div>
+
+        <!-- Últimos 24h -->
+        <div class="card-block" style="grid-column: span 4;">
+          <h3>Últimos pedidos (24h)</h3>
+          <p class="small">Total nas últimas 24 horas</p>
+          <div class="kpi">
+            <div>
+              <div id="last24h-count" class="big">0</div>
+              <div id="last24h-percent" class="muted">—</div>
+              <div class="meter" style="margin-top:6px;"><span id="last24h-bar" style="width:0%"></span></div>
+              <div class="small" id="last24h-updated" style="margin-top:6px;">—</div>
+            </div>
+            <a class="btn btn-outline" href="pedidos.html">Ver detalhes</a>
+          </div>
+        </div>
+
+        <!-- Concluídos (geral) -->
+        <div class="card-block" style="grid-column: span 4;">
+          <h3>Concluídos</h3>
+          <p class="small">Quantidade concluída sobre o volume geral</p>
+          <div class="kpi">
+            <div>
+              <div id="done-count" class="big">0</div>
+              <div id="done-percent" class="muted">—</div>
+              <div class="meter info" style="margin-top:6px;"><span id="done-bar" style="width:0%"></span></div>
+              <div class="small" id="done-updated" style="margin-top:6px;">—</div>
+            </div>
+            <a class="btn btn-outline" href="pedidos.html">Gerenciar</a>
+          </div>
+        </div>
+
+      </section>
+
+      <section class="card-block" style="margin-top:12px;">
+        <div class="small">
+          Total geral de pedidos: <strong id="total-pedidos">0</strong>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="watermark">Desenvolvido por Bruno Ferreira da Cruz</div>
+
+  <script>
+    const KEY_PEDIDOS = 'pp_pedidos_v3';
+    const $ = (s)=>document.querySelector(s);
+    const storage = { get:(k,d)=>{ try{return JSON.parse(localStorage.getItem(k)||JSON.stringify(d));}catch{ return d;} } };
+
+    function pedidosAll(){
+      // Back-compat: se não houver status, considera 'aberto'
+      return storage.get(KEY_PEDIDOS, []).map(p => ({ status: 'aberto', ...p, status: p.status || 'aberto' }));
+    }
+    function parseISO(x){ const d=new Date(x); return isNaN(d.getTime())?null:d; }
+    function fmtBrDateTime(d){ const p=n=>String(n).padStart(2,'0'); return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; }
+    function pct(part, total){ if(!total) return 0; return Math.max(0, Math.min(100, (part/total)*100)); }
+
+    function countUltimas24h(list){
+      const lim = Date.now() - 24*60*60*1000;
+      let n=0; for(const p of list){ const d=parseISO(p.created_at); if(d && d.getTime()>=lim) n++; }
+      return n;
+    }
+    function countAbertos20Dias(list){
+      const now=Date.now(), ms20 = 20*24*60*60*1000;
+      let n=0; for(const p of list){ const d=parseISO(p.created_at); if(!d) continue; const aberto=(p.status)!=='concluido'; if(aberto && (now - d.getTime())>=ms20) n++; }
+      return n;
+    }
+    function countConcluidos(list){
+      return list.reduce((acc,p)=> acc + (p.status==='concluido'?1:0), 0);
+    }
+
+    function render(){
+      const all = pedidosAll();
+      const total = all.length;
+
+      const n24   = countUltimas24h(all);
+      const n20   = countAbertos20Dias(all);
+      const ndone = countConcluidos(all);
+
+      const p24   = pct(n24, total);
+      const p20   = pct(n20, total);
+      const pdone = pct(ndone, total);
+
+      // Últimos 24h
+      $('#last24h-count').textContent   = n24;
+      $('#last24h-percent').textContent = total ? `${p24.toFixed(1)}% do total` : '—';
+      $('#last24h-bar').style.width     = p24 + '%';
+      $('#last24h-updated').textContent = 'Atualizado em ' + fmtBrDateTime(new Date());
+
+      // Alertar 20+ dias
+      $('#alert-count').textContent   = n20;
+      $('#alert-percent').textContent = total ? `${p20.toFixed(1)}% do total` : '—';
+      $('#alert-bar').style.width     = p20 + '%';
+      $('#alert-updated').textContent = 'Atualizado em ' + fmtBrDateTime(new Date());
+
+      // Concluídos
+      $('#done-count').textContent   = ndone;
+      $('#done-percent').textContent = total ? `${pdone.toFixed(1)}% do total` : '—';
+      $('#done-bar').style.width     = pdone + '%';
+      $('#done-updated').textContent = 'Atualizado em ' + fmtBrDateTime(new Date());
+
+      // total
+      $('#total-pedidos').textContent = total;
+    }
+
+    render();
+    setInterval(render, 60*1000);
+  </script>
+</body>
+</html>
