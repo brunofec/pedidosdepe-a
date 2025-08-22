@@ -8,9 +8,7 @@
 </head>
 <body>
   <header class="header">
-    <div class="logo">
-      <img src="img/logo.png" alt="Logo" class="logo-img" />
-    </div>
+    <div class="logo"><img src="img/logo.png" alt="Logo" class="logo-img" /></div>
     <div class="small">Protótipo local</div>
   </header>
 
@@ -29,15 +27,11 @@
         <form id="form-pulmao" class="grid" style="grid-template-columns: repeat(6, 1fr);">
           <div style="grid-column: span 2;">
             <label>Fabricante (do cadastro de produtos)</label>
-            <select id="sel-fabricante" class="input" required>
-              <option value="">Selecione…</option>
-            </select>
+            <select id="sel-fabricante" class="input" required><option value="">Selecione…</option></select>
           </div>
           <div style="grid-column: span 2;">
             <label>Produto (do cadastro de produtos)</label>
-            <select id="sel-produto" class="input" required disabled>
-              <option value="">Selecione…</option>
-            </select>
+            <select id="sel-produto" class="input" required disabled><option value="">Selecione…</option></select>
           </div>
           <div style="grid-column: span 2;">
             <label>Código do Produto</label>
@@ -48,9 +42,13 @@
             <label>Código da Peça</label>
             <input id="f-codigo-peca" class="input" placeholder="Ex.: P45" required />
           </div>
-          <div style="grid-column: span 4;">
+          <div style="grid-column: span 3;">
             <label>Peça</label>
             <input id="f-peca" class="input" placeholder="Ex.: Correia Porta" required />
+          </div>
+          <div style="grid-column: span 1;">
+            <label>Estoque</label>
+            <input id="f-estoque" class="input" type="number" min="0" value="0" required />
           </div>
 
           <div style="grid-column: span 6; display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
@@ -70,7 +68,7 @@
           <button id="btn-import" class="btn btn-outline">Importar CSV</button>
           <button id="btn-model"  class="btn btn-outline">Baixar modelo CSV</button>
 
-          <span class="small">Cabeçalho aceito: Fabricante; CodigoProduto; Produto; CodigoPeca; Peca</span>
+          <span class="small">Cabeçalho aceito: Fabricante; CodigoProduto; Produto; CodigoPeca; Peca; Estoque</span>
         </div>
 
         <div style="overflow:auto; margin-top:12px;">
@@ -82,6 +80,7 @@
                 <th>Produto</th>
                 <th>Cód. Peça</th>
                 <th>Peça</th>
+                <th style="text-align:right;">Estoque</th>
                 <th style="width:180px;">Ações</th>
               </tr>
             </thead>
@@ -95,83 +94,69 @@
   <div class="watermark">Desenvolvido por Bruno Ferreira da Cruz</div>
 
   <script>
-    // ===== Constantes / Storage
-    const KEY_PRODUTOS = 'pp_produtos_v3';
-    const KEY_PULMAO   = 'pp_pulmao_v4';
-    const $ = (s)=>document.querySelector(s);
-    const storage = { get(k,d){ try{ return JSON.parse(localStorage.getItem(k)||JSON.stringify(d)); }catch{ return d; }}, set(k,v){ localStorage.setItem(k,JSON.stringify(v)); } };
-    const uid = ()=> (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(16).slice(2));
+    const KEY_PRODUTOS='pp_produtos_v3';
+    const KEY_PULMAO='pp_pulmao_v5'; // v5 inclui "estoque"
+    const $=(s)=>document.querySelector(s);
+    const storage={ get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k)||JSON.stringify(d));}catch{return d;}}, set:(k,v)=>localStorage.setItem(k,JSON.stringify(v)) };
+    const uid=()=> (crypto.randomUUID?crypto.randomUUID():Math.random().toString(16).slice(2));
 
-    // ===== Migração (se existir "codigo" antigo → "codigoProduto")
-    (function migrateProdutosCodigo(){
+    // migra v4->v5 (adiciona estoque=0 se faltar)
+    (function migratePulmao(){
+      const old=localStorage.getItem('pp_pulmao_v4'); if(!old) return;
       try{
-        const raw = localStorage.getItem(KEY_PRODUTOS);
-        if(!raw) return;
-        const arr = JSON.parse(raw);
-        let changed = false;
-        for (const p of arr){
-          if (p && p.codigo && !p.codigoProduto){
-            p.codigoProduto = p.codigo;
-            delete p.codigo;
-            changed = true;
-          }
-        }
-        if (changed) localStorage.setItem(KEY_PRODUTOS, JSON.stringify(arr));
-      }catch(e){}
+        const arr=JSON.parse(old).map(x=>({estoque:0, ...x, estoque: Number.isFinite(+x.estoque)?+x.estoque:0}));
+        storage.set(KEY_PULMAO, arr);
+        localStorage.removeItem('pp_pulmao_v4');
+      }catch{}
     })();
 
-    // ===== Produtos (fonte da cascata)
-    const produtosStore = {
-      all(){ return storage.get(KEY_PRODUTOS, []); },
-      fabricantes(){ return [...new Set(this.all().map(p=>p.fabricante))].filter(Boolean).sort((a,b)=>a.localeCompare(b)); },
-      produtosByFabricante(fab){ return this.all().filter(p=>p.fabricante===fab).sort((a,b)=>(a.produto||'').localeCompare(b.produto||'')); },
-      findByFabAndProduto(fab, prod){ return this.all().find(p=>p.fabricante===fab && p.produto===prod); }
+    // produtos (fonte)
+    const produtosStore={
+      all(){return storage.get(KEY_PRODUTOS,[]);},
+      fabricantes(){return [...new Set(this.all().map(p=>p.fabricante))].filter(Boolean).sort((a,b)=>a.localeCompare(b));},
+      produtosByFabricante(f){return this.all().filter(p=>p.fabricante===f).sort((a,b)=>(a.produto||'').localeCompare(b.produto||''));},
+      find(f,pr){return this.all().find(p=>p.fabricante===f && p.produto===pr);}
     };
 
     function loadFabricantes(){
-      const sel = $('#sel-fabricante');
-      sel.innerHTML = '<option value="">Selecione…</option>' + produtosStore.fabricantes().map(f=>`<option value="${f}">${f}</option>`).join('');
-      $('#sel-produto').innerHTML = '<option value="">Selecione…</option>';
-      $('#sel-produto').disabled = true;
-      $('#f-codigo-produto').value = '';
+      $('#sel-fabricante').innerHTML='<option value="">Selecione…</option>'+produtosStore.fabricantes().map(f=>`<option value="${f}">${f}</option>`).join('');
+      $('#sel-produto').innerHTML='<option value="">Selecione…</option>'; $('#sel-produto').disabled=true;
+      $('#f-codigo-produto').value='';
     }
     function loadProdutos(fab){
-      const items = produtosStore.produtosByFabricante(fab);
-      const sel = $('#sel-produto');
-      sel.innerHTML = '<option value="">Selecione…</option>' + items.map(p=>`<option value="${p.produto}">${p.produto}</option>`).join('');
-      sel.disabled = false;
-      $('#f-codigo-produto').value = '';
+      const items=produtosStore.produtosByFabricante(fab);
+      $('#sel-produto').innerHTML='<option value="">Selecione…</option>'+items.map(p=>`<option value="${p.produto}">${p.produto}</option>`).join('');
+      $('#sel-produto').disabled=false;
+      $('#f-codigo-produto').value='';
     }
     function fillCodProduto(fab, prod){
-      const p = produtosStore.findByFabAndProduto(fab, prod);
-      // >>> CORREÇÃO AQUI: usa codigoProduto <<<
-      $('#f-codigo-produto').value = p ? (p.codigoProduto || '') : '';
+      const p=produtosStore.find(fab,prod);
+      $('#f-codigo-produto').value = p ? (p.codigoProduto||'') : '';
     }
 
-    // ===== Pulmão (CRUD)
-    const pulmaoStore = {
-      all(){ return storage.get(KEY_PULMAO, []); },
-      saveAll(list){ storage.set(KEY_PULMAO, list); },
-      create(data){ const l=this.all(); const item={id:uid(), created_at:new Date().toISOString(), ...data}; l.unshift(item); this.saveAll(l); return item; },
-      update(id, patch){ const l=this.all(); const i=l.findIndex(x=>x.id===id); if(i>=0){ l[i]={...l[i],...patch}; this.saveAll(l); return l[i]; } return null; },
-      remove(id){ this.saveAll(this.all().filter(x=>x.id!==id)); },
-      filter(q=''){ q=q.toLowerCase(); return this.all().filter(x=>!q||`${x.fabricante} ${x.codigoProduto} ${x.produto} ${x.codigoPeca} ${x.peca}`.toLowerCase().includes(q)); },
-      exists(rec){ return this.all().some(x=>x.fabricante===rec.fabricante && x.codigoProduto===rec.codigoProduto && x.produto===rec.produto && x.codigoPeca===rec.codigoPeca && x.peca===rec.peca); }
+    // Pulmão CRUD
+    const pulmao={
+      all(){return storage.get(KEY_PULMAO,[]).map(x=>({estoque:0,...x,estoque: Number.isFinite(+x.estoque)?+x.estoque:0}));},
+      saveAll(l){storage.set(KEY_PULMAO,l);},
+      create(d){const l=this.all(); const it={id:uid(), created_at:new Date().toISOString(), ...d, estoque:+d.estoque||0}; l.unshift(it); this.saveAll(l); return it;},
+      update(id,patch){const l=this.all(); const i=l.findIndex(x=>x.id===id); if(i>=0){l[i]={...l[i],...patch}; this.saveAll(l); return l[i];} return null;},
+      remove(id){this.saveAll(this.all().filter(x=>x.id!==id));},
+      filter(q=''){q=q.toLowerCase(); return this.all().filter(x=>!q||`${x.fabricante} ${x.codigoProduto} ${x.produto} ${x.codigoPeca} ${x.peca}`.toLowerCase().includes(q));},
+      exists(rec){return this.all().some(x=>x.fabricante===rec.fabricante && x.codigoProduto===rec.codigoProduto && x.produto===rec.produto && x.codigoPeca===rec.codigoPeca && x.peca===rec.peca);}
     };
 
-    // ===== Validação
-    const onlyLetters=(s)=>/^[A-Za-zÀ-ÖØ-öø-ÿ ]+$/.test(s.trim());
-    const alphaNum  =(s)=>/^[0-9A-Za-zÀ-ÖØ-öø-ÿ \-_/]+$/.test(s.trim());
-    function validate({ fabricante, produto, codigoProduto, codigoPeca, peca }){
+    const onlyLetters=(s)=>/^[A-Za-zÀ-ÖØ-öø-ÿ ]+$/.test((s||'').trim());
+    const alphaNum=(s)=>/^[0-9A-Za-zÀ-ÖØ-öø-ÿ \-_/]+$/.test((s||'').trim());
+    function validate({fabricante,produto,codigoProduto,codigoPeca,peca,estoque}){
       if(!fabricante||!onlyLetters(fabricante)) return 'Fabricante inválido (apenas letras).';
       if(!produto||!alphaNum(produto)) return 'Produto inválido.';
       if(!codigoProduto||!alphaNum(codigoProduto)) return 'Código do Produto inválido.';
       if(!codigoPeca||!alphaNum(codigoPeca)) return 'Código da Peça inválido.';
       if(!peca||!alphaNum(peca)) return 'Peça inválida.';
+      if(estoque===''||estoque==null||+estoque<0) return 'Estoque inválido.';
       return null;
     }
 
-    // ===== UI tabela
     function rowHTML(x){
       return `<tr>
         <td>${x.fabricante}</td>
@@ -179,6 +164,7 @@
         <td>${x.produto}</td>
         <td>${x.codigoPeca}</td>
         <td>${x.peca}</td>
+        <td style="text-align:right;">${x.estoque}</td>
         <td>
           <button class="btn btn-outline" data-edit="${x.id}">Editar</button>
           <button class="btn btn-outline" style="margin-left:6px" data-del="${x.id}">Excluir</button>
@@ -186,8 +172,8 @@
       </tr>`;
     }
     function render(){
-      const list = pulmaoStore.filter($('#q').value);
-      $('#tbody').innerHTML = list.length ? list.map(rowHTML).join('') : `<tr><td colspan="6" class="small">Nenhum item cadastrado.</td></tr>`;
+      const list=pulmao.filter($('#q').value);
+      $('#tbody').innerHTML = list.length ? list.map(rowHTML).join('') : `<tr><td colspan="7" class="small">Nenhum item cadastrado.</td></tr>`;
     }
     function clearForm(){
       $('#form-pulmao').reset();
@@ -197,71 +183,47 @@
       $('#msg').textContent='';
     }
 
-    // ===== CSV: exporta com ; + BOM + CRLF (Excel PT-BR)
+    // CSV
     function toCsvValue(v){ if(v==null) v=''; v=String(v).replace(/"/g,'""'); return `"${v}"`; }
     function exportCsv(rows, header){
       const DELIM=';'; const EOL='\r\n'; const BOM='\uFEFF';
       const lines=[header.map(toCsvValue).join(DELIM)];
       rows.forEach(r=>lines.push(header.map(h=>toCsvValue(r[h])).join(DELIM)));
       const blob=new Blob([BOM+lines.join(EOL)],{type:'text/csv;charset=utf-8;'});
-      const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url;
-      const ts=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-'); a.download=`pulmao-${ts}.csv`;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+      const ts=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-'); a.download=`pulmao-${ts}.csv`; a.click();
     }
-
-    // ===== CSV: importar robusto (aceita ; ou , e cabeçalhos com pontuação)
-    function bestDelimiter(line){
-      const sc=(line.match(/;/g)||[]).length, cc=(line.match(/,/g)||[]).length;
-      return sc>=cc ? ';' : ',';
-    }
+    function bestDelimiter(line){ const sc=(line.match(/;/g)||[]).length, cc=(line.match(/,/g)||[]).length; return sc>=cc?';':','; }
     function parseCsvSmart(text){
-      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // remove BOM
-      const firstLine = (text.split(/\r?\n/,1)[0] || '');
-      const delim = bestDelimiter(firstLine);
-
+      if(text.charCodeAt(0)===0xFEFF) text=text.slice(1);
+      const first=(text.split(/\r?\n/,1)[0]||''); const delim=bestDelimiter(first);
       const rows=[]; let cur=''; let inQ=false; let row=[];
       for(let i=0;i<text.length;i++){
         const ch=text[i];
-        if(inQ){
-          if(ch==='"'){ if(text[i+1]==='"'){ cur+='"'; i++; } else { inQ=false; } }
-          else { cur+=ch; }
-        }else{
-          if(ch==='"'){ inQ=true; }
-          else if(ch===delim){ row.push(cur); cur=''; }
-          else if(ch==='\n'){ row.push(cur); rows.push(row); row=[]; cur=''; }
-          else if(ch==='\r'){ /* ignore */ }
-          else { cur+=ch; }
-        }
+        if(inQ){ if(ch==='"'){ if(text[i+1]==='"'){cur+='"'; i++;} else inQ=false; } else cur+=ch; }
+        else{ if(ch==='"') inQ=true; else if(ch===delim){ row.push(cur); cur=''; } else if(ch==='\n'){ row.push(cur); rows.push(row); row=[]; cur=''; } else if(ch!=='\r'){ cur+=ch; } }
       }
       if(cur.length||row.length){ row.push(cur); rows.push(row); }
       return rows;
     }
-    function normalizeHeader(h){
-      return h
-        .trim()
-        .toLowerCase()
-        .normalize('NFD').replace(/[\u0300-\u036f]/g,'') // tira acento
-        .replace(/[^a-z0-9]/g,''); // remove espaços, pontos, etc.
-    }
+    function normalizeHeader(h){ return h.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,''); }
     function mapColumns(headerRow){
       const idx={}; headerRow.forEach((h,i)=>idx[normalizeHeader(h)]=i);
       const map={
-        fabricante:    idx['fabricante'],
-        codigoProduto: idx['codigoproduto'] ?? idx['codigo'] ?? idx['codprod'] ?? idx['codigo_produto'],
-        produto:       idx['produto'],
-        codigoPeca:    idx['codigopeca'] ?? idx['codpeca'] ?? idx['codigo_peca'],
-        peca:          idx['peca']
+        fabricante:idx['fabricante'],
+        codigoProduto:idx['codigoproduto'] ?? idx['codigo'] ?? idx['codprod'],
+        produto:idx['produto'],
+        codigoPeca:idx['codigopeca'] ?? idx['codpeca'],
+        peca:idx['peca'],
+        estoque:idx['estoque']
       };
       if([map.fabricante,map.codigoProduto,map.produto,map.codigoPeca,map.peca].some(v=>v==null)) return null;
       return map;
     }
     function importCsvText(text){
-      const rows = parseCsvSmart(text);
-      if(!rows.length) throw new Error('CSV vazio.');
-      const map = mapColumns(rows[0]);
-      if(!map) throw new Error('Cabeçalho inválido. Use: Fabricante; CodigoProduto; Produto; CodigoPeca; Peca');
-
-      let ok=0, dup=0, bad=0; const list=pulmaoStore.all();
+      const rows=parseCsvSmart(text); if(!rows.length) throw new Error('CSV vazio.');
+      const map=mapColumns(rows[0]); if(!map) throw new Error('Cabeçalho inválido. Use: Fabricante; CodigoProduto; Produto; CodigoPeca; Peca; Estoque');
+      let ok=0, dup=0, bad=0; const list=pulmao.all();
       for(let r=1;r<rows.length;r++){
         const cols=rows[r]; if(!cols || cols.every(v=>!String(v||'').trim())) continue;
         const rec={
@@ -269,33 +231,28 @@
           codigoProduto:(cols[map.codigoProduto]||'').trim(),
           produto:(cols[map.produto]||'').trim(),
           codigoPeca:(cols[map.codigoPeca]||'').trim(),
-          peca:(cols[map.peca]||'').trim()
+          peca:(cols[map.peca]||'').trim(),
+          estoque:+(cols[map.estoque]||0)
         };
-        const err=validate(rec); if(err){ bad++; continue; }
-        if(pulmaoStore.exists(rec)){ dup++; continue; }
-        list.unshift({id:uid(), created_at:new Date().toISOString(), ...rec}); ok++;
+        const err=validate(rec); if(err){bad++;continue;}
+        if(pulmao.exists(rec)){dup++;continue;}
+        list.unshift({id:uid(), created_at:new Date().toISOString(), ...rec});
+        ok++;
       }
-      pulmaoStore.saveAll(list);
-      return { ok, dup, bad };
+      pulmao.saveAll(list);
+      return {ok,dup,bad};
     }
 
-    // ===== Eventos
+    // eventos
     loadFabricantes();
 
     $('#sel-fabricante').addEventListener('change', e=>{
       const fab=e.target.value;
-      if(!fab){
-        $('#sel-produto').innerHTML='<option value="">Selecione…</option>';
-        $('#sel-produto').disabled=true;
-        $('#f-codigo-produto').value='';
-        return;
-      }
+      if(!fab){ $('#sel-produto').innerHTML='<option value="">Selecione…</option>'; $('#sel-produto').disabled=true; $('#f-codigo-produto').value=''; return; }
       loadProdutos(fab);
     });
-
     $('#sel-produto').addEventListener('change', e=>{
-      const fab=$('#sel-fabricante').value; const prod=e.target.value;
-      // >>> CORREÇÃO AQUI: preenche a partir de codigoProduto
+      const fab=$('#sel-fabricante').value, prod=e.target.value;
       fillCodProduto(fab, prod);
     });
 
@@ -306,80 +263,57 @@
       const codigoProduto=$('#f-codigo-produto').value;
       const codigoPeca=$('#f-codigo-peca').value.trim();
       const peca=$('#f-peca').value.trim();
-
-      const err=validate({fabricante,produto,codigoProduto,codigoPeca,peca});
+      const estoque=+($('#f-estoque').value||0);
+      const err=validate({fabricante,produto,codigoProduto,codigoPeca,peca,estoque});
       if(err){ $('#msg').textContent=err; $('#msg').style.color='#ffd35c'; return; }
-      $('#msg').textContent='';
-
-      const editingId = $('#form-pulmao').dataset.editing;
-      const payload = { fabricante, produto, codigoProduto, codigoPeca, peca };
-
-      if(editingId){ pulmaoStore.update(editingId, payload); $('#msg').textContent='Registro atualizado com sucesso.'; }
-      else{
-        if(pulmaoStore.exists(payload)){ $('#msg').textContent='Registro duplicado: mesma combinação já existe.'; $('#msg').style.color='#ffd35c'; return; }
-        pulmaoStore.create(payload); $('#msg').textContent='Registro cadastrado com sucesso.';
-      }
-      $('#msg').style.color='#9ba3af';
-      clearForm(); render();
+      const editingId=$('#form-pulmao').dataset.editing;
+      const payload={fabricante,produto,codigoProduto,codigoPeca,peca,estoque};
+      if(editingId){ pulmao.update(editingId,payload); $('#msg').textContent='Registro atualizado com sucesso.'; }
+      else{ if(pulmao.exists(payload)){ $('#msg').textContent='Registro duplicado.'; $('#msg').style.color='#ffd35c'; return; } pulmao.create(payload); $('#msg').textContent='Registro cadastrado com sucesso.'; }
+      $('#msg').style.color='#9ba3af'; clearForm(); render();
     });
-
     $('#form-pulmao').addEventListener('reset', clearForm);
 
     $('#tbody').addEventListener('click', e=>{
       const idDel=e.target.getAttribute('data-del');
       const idEd =e.target.getAttribute('data-edit');
-      if(idDel){ if(confirm('Excluir este registro?')){ pulmaoStore.remove(idDel); render(); } }
+      if(idDel){ if(confirm('Excluir este registro?')){ pulmao.remove(idDel); render(); } }
       else if(idEd){
-        const x=pulmaoStore.all().find(r=>r.id===idEd); if(!x) return;
+        const x=pulmao.all().find(r=>r.id===idEd); if(!x) return;
         $('#sel-fabricante').value=x.fabricante; loadProdutos(x.fabricante);
         $('#sel-produto').value=x.produto; $('#f-codigo-produto').value=x.codigoProduto;
-        $('#f-codigo-peca').value=x.codigoPeca; $('#f-peca').value=x.peca;
+        $('#f-codigo-peca').value=x.codigoPeca; $('#f-peca').value=x.peca; $('#f-estoque').value=x.estoque;
         $('#form-pulmao').dataset.editing=idEd; $('#msg').textContent='Editando… salve para confirmar.'; $('#msg').style.color='#9ba3af';
         window.scrollTo({top:0,behavior:'smooth'});
       }
     });
 
     $('#q').addEventListener('input', render);
-
-    // Exportar
     $('#btn-export').addEventListener('click', ()=>{
-      const rows=pulmaoStore.filter($('#q').value);
+      const rows=pulmao.filter($('#q').value);
       if(!rows.length){ alert('Não há registros para exportar (verifique o filtro).'); return; }
-      const data=rows.map(r=>({Fabricante:r.fabricante, CodigoProduto:r.codigoProduto, Produto:r.produto, CodigoPeca:r.codigoPeca, Peca:r.peca, CriadoEm:r.created_at||''}));
-      exportCsv(data, ['Fabricante','CodigoProduto','Produto','CodigoPeca','Peca','CriadoEm']);
+      const data=rows.map(r=>({Fabricante:r.fabricante, CodigoProduto:r.codigoProduto, Produto:r.produto, CodigoPeca:r.codigoPeca, Peca:r.peca, Estoque:r.estoque, CriadoEm:r.created_at||''}));
+      exportCsv(data, ['Fabricante','CodigoProduto','Produto','CodigoPeca','Peca','Estoque','CriadoEm']);
     });
-
-    // Importar
     $('#btn-import').addEventListener('click', ()=>$('#file-import').click());
     $('#file-import').addEventListener('change', e=>{
-      const file=e.target.files && e.target.files[0]; if(!file) return;
-      const reader=new FileReader();
-      reader.onload=()=>{
+      const f=e.target.files&&e.target.files[0]; if(!f) return;
+      const rdr=new FileReader();
+      rdr.onload=()=>{
         try{
-          const res=importCsvText(String(reader.result||''));
-          $('#msg').textContent = `Importação: ${res.ok} adicionados, ${res.dup} duplicados, ${res.bad} inválidos.`;
-          $('#msg').style.color = '#9ba3af'; render();
-        }catch(err){
-          $('#msg').textContent='Falha ao importar: '+(err.message||err);
-          $('#msg').style.color='#ffd35c';
-        } finally { e.target.value=''; }
+          const res=importCsvText(String(rdr.result||'')); $('#msg').textContent = `Importação: ${res.ok} adicionados, ${res.dup} duplicados, ${res.bad} inválidos.`; $('#msg').style.color='#9ba3af'; render();
+        }catch(err){ $('#msg').textContent='Falha ao importar: '+(err.message||err); $('#msg').style.color='#ffd35c'; }
+        finally{ e.target.value=''; }
       };
-      reader.onerror=()=>{ $('#msg').textContent='Não foi possível ler o arquivo.'; $('#msg').style.color='#ffd35c'; };
-      reader.readAsText(file,'utf-8');
+      rdr.readAsText(f,'utf-8');
     });
-
-    // Modelo
     $('#btn-model').addEventListener('click', ()=>{
-      const blob=new Blob(['\uFEFFFabricante;CodigoProduto;Produto;CodigoPeca;Peca\r\n'],{type:'text/csv;charset=utf-8;'});
+      const blob=new Blob(['\uFEFFFabricante;CodigoProduto;Produto;CodigoPeca;Peca;Estoque\r\n'],{type:'text/csv;charset=utf-8;'});
       const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='modelo-pulmao.csv'; a.click();
     });
 
-    // Inicial
     render();
-    if (produtosStore.all().length === 0){
-      $('#msg').textContent = 'Nenhum produto encontrado. Cadastre em "Cadastro de Produtos" primeiro.';
-      $('#msg').style.color = '#ffd35c';
-    }
+    if (produtosStore.all().length===0){ $('#msg').textContent='Nenhum produto encontrado. Cadastre em "Cadastro de Produtos" primeiro.'; $('#msg').style.color='#ffd35c'; }
   </script>
 </body>
 </html>
